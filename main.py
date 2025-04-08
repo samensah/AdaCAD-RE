@@ -124,7 +124,7 @@ def main():
                 
                 for i, output in enumerate(outputs):
                     predicted_relation = output.strip()
-                    actual_relation = batch['relation'][i]
+                    actual_relation = batch['relations'][i]
                     
                     subject_entity = batch['subject_entity'][i]
                     subject_type = batch['subject_type'][i]

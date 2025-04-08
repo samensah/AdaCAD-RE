@@ -16,7 +16,7 @@ def get_args():
     # Data arguments
     parser.add_argument("--data_path", type=str, default="data/refind/test.json",
                         help="Path to the data file")
-    parser.add_argument("--batch_size", type=int, default=4,
+    parser.add_argument("--batch_size", type=int, default=2,
                         help="Batch size for evaluation")
     
     # System arguments
