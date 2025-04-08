@@ -138,8 +138,8 @@ if __name__ == "__main__":
             # Display results
             print("\nGenerated relation classifications:")
             for i, output in enumerate(outputs):
-                print(f"Sample {i+1}: {output.strip()}")
-                print(f"Actual relation: {batch['relation'][i]}")
+                print(f"Predicted relation: {output.strip()}")
+                print(f"Actual relation: {batch['relations'][i]}")
                 print("-" * 50)
                 
             
