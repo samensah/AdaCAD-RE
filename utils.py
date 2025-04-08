@@ -25,7 +25,11 @@ def custom_collate_fn(batch):
         # "labels": [],
         "relations": [],
         "original_texts": [],
-        "masked_texts": []
+        "masked_texts": [],
+        "subject_entity": [],
+        "object_entity": [],
+        "subject_type": [],
+        "object_type": []
     }
 
     # Gather items from each instance in the batch
@@ -45,6 +49,12 @@ def custom_collate_fn(batch):
         batch_dict["relations"].append(instance["relation"])
         batch_dict["original_texts"].append(instance["original_text"])
         batch_dict["masked_texts"].append(instance["masked_text"])
+
+        # Entity information
+        batch_dict["subject_entity"].append(instance["subject_entity"])
+        batch_dict["object_entity"].append(instance["object_entity"])
+        batch_dict["subject_type"].append(instance["subject_type"])
+        batch_dict["object_type"].append(instance["object_type"])
     
     # Convert lists to tensors where appropriate
     batch_dict["instance_id"] = torch.tensor(batch_dict["instance_id"])

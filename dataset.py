@@ -163,31 +163,47 @@ class RelationExtractionDataset(Dataset):
             original_inputs[key] = original_inputs[key].squeeze(0)
         for key in masked_inputs:
             masked_inputs[key] = masked_inputs[key].squeeze(0)
-        
-        # # Get label index
-        # label_idx = relation_names.index(instance["relation"])
+
+        #  Extract entity texts
+        subj_text = " ".join(instance["token"][instance["subj_start"]:instance["subj_end"]+1])
+        obj_text = " ".join(instance["token"][instance["obj_start"]:instance["obj_end"]+1])
         
         return {
             "instance_id": idx,
             "original_inputs": original_inputs,
             "masked_inputs": masked_inputs,
-            # "label": label_idx,
             "relation": instance["relation"],
-            # "relation_names": relation_names,
             "original_text": original_prompt,
-            "masked_text": masked_prompt
+            "masked_text": masked_prompt,
+            "subject_entity": subj_text,
+            "object_entity": obj_text,
+            "subject_type": instance["subj_type"],
+            "object_type": instance["obj_type"]
         }
 
 if __name__ == "__main__":
+    from config import config
     # Data path
-    base_model_name = "../Llama-3.2-1B-Instruct"
+    base_model_name = "microsoft/Phi-4-mini-instruct"
     data_path = "data/refind/test.json"
     
     # Load base tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     # Create dataset
     dataset = RelationExtractionDataset(data_path, tokenizer)
-    print(dataset[0])
+    
+    # Create dataloader with config values
+    dataloader = DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        collate_fn=custom_collate_fn,
+        num_workers=config.num_workers,
+        pin_memory=(config.device == "cuda")
+    )
+    
+    print(f"Dataset created with {len(dataset)} samples")
+    print(f"Sample instance: {dataset[0]}")

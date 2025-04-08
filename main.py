@@ -2,6 +2,7 @@ import torch
 import logging
 import os
 import random
+import json
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from torch.utils.data import DataLoader
@@ -9,7 +10,7 @@ from torch.utils.data import DataLoader
 from config import config
 from model import RelationExtractionModel
 from dataset import RelationExtractionDataset
-from utils import custom_collate_fn
+from utils import custom_collate_fn, compute_metrics
 
 def setup_logging():
     """Set up logging configuration"""
@@ -90,77 +91,63 @@ def main():
         shuffle=False,
         collate_fn=custom_collate_fn,
         num_workers=config.num_workers,
-        pin_memory=config.device
+        pin_memory=(config.device == "cuda")
     )
+
+    # Create results file names
+    model_name = os.path.basename(config.base_model_name)
+    dataset_name = config.data_path.replace("/", "_").replace(".", "_")
+    jsonl_filename = f"{model_name}_{dataset_name}_results.jsonl"
+
+    with open(jsonl_filename, "w") as jsonl_file:
     
-    # Run model evaluation
-    logger.info("Starting model evaluation")
-    results = []
-    correct = 0
-    total = 0
+        # Run model evaluation
+        logger.info("Starting model evaluation")
+        results = []
+        correct = 0
+        total = 0
     
-    for batch_idx, batch in enumerate(dataloader):
-        logger.info(f"Processing batch {batch_idx+1}/{len(dataloader)}")
-        
-        # Move inputs to device
-        for key in batch["original_inputs"]:
-            batch["original_inputs"][key] = batch["original_inputs"][key].to(device)
-        for key in batch["masked_inputs"]:
-            batch["masked_inputs"][key] = batch["masked_inputs"][key].to(device)
-        
-        with torch.no_grad():  # Disable gradient computation for inference
-            # Process the batch through our model
-            outputs = model(
-                batch['original_inputs']['input_ids'],
-                batch['masked_inputs']['input_ids']
-            )
+        for batch_idx, batch in enumerate(dataloader):
+            logger.info(f"Processing batch {batch_idx+1}/{len(dataloader)}")
             
-            # Compare predictions with ground truth
-            for i, output in enumerate(outputs):
-                predicted_relation = output.strip()
-                actual_relation = batch['relations'][i]
+            # Move inputs to device
+            for key in batch["original_inputs"]:
+                batch["original_inputs"][key] = batch["original_inputs"][key].to(device)
+            for key in batch["masked_inputs"]:
+                batch["masked_inputs"][key] = batch["masked_inputs"][key].to(device)
+            
+            with torch.no_grad(): 
+                outputs = model(
+                    batch['original_inputs']['input_ids'],
+                    batch['masked_inputs']['input_ids']
+                )
                 
-                # # Log results
-                # logger.info(f"Sample {total+i+1}:")
-                # logger.info(f"  Predicted: {predicted_relation}")
-                # logger.info(f"  Actual: {actual_relation}")
-                
-                # Check if prediction is correct
-                is_correct = predicted_relation == actual_relation
-                if is_correct:
-                    correct += 1
-                
-                # Store result
-                results.append({
-                    "id": batch["instance_id"][i].item(),
-                    "original_text": batch["original_texts"][i],
-                    "predicted": predicted_relation,
-                    "actual": actual_relation,
-                    "correct": is_correct
-                })
-                
-                
-        # Update total count
-        total += len(outputs)
-        
-        # Calculate and log accuracy
-        accuracy = correct / total
-        logger.info(f"Accuracy so far: {accuracy:.4f} ({correct}/{total})")
-    
-    # Final accuracy
-    final_accuracy = correct / total
-    logger.info(f"Final accuracy: {final_accuracy:.4f} ({correct}/{total})")
-    
-    # Save results
-    import json
-    results_path = os.path.join(config.output_dir, "results.json")
-    with open(results_path, "w") as f:
-        json.dump({
-            "accuracy": final_accuracy,
-            "samples": results
-        }, f, indent=2)
-    
-    logger.info(f"Results saved to {results_path}")
+                for i, output in enumerate(outputs):
+                    predicted_relation = output.strip()
+                    actual_relation = batch['relation'][i]
+                    
+                    subject_entity = batch['subject_entity'][i]
+                    subject_type = batch['subject_type'][i]
+                    object_entity = batch['object_entity'][i]
+                    object_type = batch['object_type'][i]
+                    
+                    
+                    # Create result dictionary
+                    result = {
+                        "id": batch["instance_id"][i].item(),
+                        "original_text": batch["original_texts"][i],
+                        "masked_text": batch["masked_texts"][i],
+                        "subject_entity": subject_entity,
+                        "subject_type": subject_type,
+                        "object_entity": object_entity,
+                        "object_type": object_type,
+                        "predicted": predicted_relation,
+                        "actual": actual_relation,
+                    }
+                    
+                    json.dump(result, jsonl_file)
+                    jsonl_file.write("\n")
+                    jsonl_file.flush()  # Ensure JSONL results are written immediately
 
 if __name__ == "__main__":
     main()

@@ -6,8 +6,8 @@ def get_args():
     parser = argparse.ArgumentParser(description="Relation Extraction Model Configuration")
     
     # Model arguments
-    parser.add_argument("--base_model_name", type=str, default="../Llama-3.2-3B-Instruct",
-                        help="Path or name of the base language model")
+    parser.add_argument("--base_model_name", type=str, default="microsoft/Phi-4-mini-instruct",
+                        help="Path or name of the base language model: microsoft/Phi-4-mini-instruct, ../Llama-3.2-3B-Instruct")
     parser.add_argument("--max_length", type=int, default=30,
                         help="Maximum number of tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.1,
@@ -16,7 +16,7 @@ def get_args():
     # Data arguments
     parser.add_argument("--data_path", type=str, default="data/refind/test.json",
                         help="Path to the data file")
-    parser.add_argument("--batch_size", type=int, default=2,
+    parser.add_argument("--batch_size", type=int, default=4,
                         help="Batch size for evaluation")
     
     # System arguments
