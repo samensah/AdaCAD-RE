@@ -8,15 +8,50 @@ import os
 from utils import custom_collate_fn
 from tqdm import tqdm
 from constant import refind_relation_descriptions
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
 class RelationExtractionDataset(Dataset):
     """Dataset for relation extraction task."""
     
-    def __init__(self, data_path, tokenizer, data_description_func):
+    # Class variables to store train data embeddings
+    train_data = None
+    train_embeddings = None
+    sentence_model = None
+    train_relation_to_instances = None
+    
+    @classmethod
+    def prepare_train_examples(cls, train_path, num_examples=3):
+        """Prepare training data examples and compute embeddings once."""
+        # Load training data
+        with open(train_path, 'r') as f:
+            cls.train_data = json.load(f)
+            
+        # Group instances by relation for efficient retrieval
+        cls.train_relation_to_instances = {}
+        for idx, instance in enumerate(cls.train_data):
+            relation = instance["relation"]
+            if relation not in cls.train_relation_to_instances:
+                cls.train_relation_to_instances[relation] = []
+            cls.train_relation_to_instances[relation].append((idx, instance))
+            
+        # Initialize sentence transformer if not already done
+        if cls.sentence_model is None:
+            cls.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+        # Compute embeddings for train data
+        print(f"Computing sentence embeddings for {len(cls.train_data)} training instances...")
+        train_texts = [" ".join(instance["token"]) for instance in cls.train_data]
+        cls.train_embeddings = cls.sentence_model.encode(train_texts, show_progress_bar=True, convert_to_tensor=True)
+        
+        print(f"Prepared {len(cls.train_data)} training instances for examples")
+        
+    def __init__(self, data_path, tokenizer, data_description_func, num_examples=3):
         self.tokenizer = tokenizer
         self.data_path = data_path
         self.data = self._load_data(data_path)
         self.data_description_func = data_description_func
+        self.num_examples = num_examples
         
         # Pre-compute unique relations
         self.unique_relations = sorted(list(set([item["relation"] for item in self.data])))
@@ -27,6 +62,43 @@ class RelationExtractionDataset(Dataset):
         with open(data_path, 'r') as f:
             return json.load(f)
     
+    def _find_similar_examples(self, instance):
+        """Find similar examples from the training set with the same relation."""
+        # Skip if train data not prepared
+        if RelationExtractionDataset.train_data is None:
+            return []
+            
+        relation = instance["relation"]
+        instance_text = " ".join(instance["token"])
+        
+        # Compute embedding for current instance
+        instance_embedding = RelationExtractionDataset.sentence_model.encode(
+            instance_text, convert_to_tensor=True
+        )
+            
+        # Get all training instances with the same relation
+        same_relation_instances = RelationExtractionDataset.train_relation_to_instances.get(relation, [])
+        
+        # If not enough examples with same relation, return available ones
+        if len(same_relation_instances) <= self.num_examples:
+            return [inst for _, inst in same_relation_instances][:self.num_examples]
+        
+        # Get embeddings for training instances with the same relation
+        indices = [idx for idx, _ in same_relation_instances]
+        candidate_embeddings = RelationExtractionDataset.train_embeddings[indices]
+        
+        # Calculate similarity scores
+        similarity_scores = cosine_similarity(
+            instance_embedding.cpu().numpy().reshape(1, -1), 
+            candidate_embeddings.cpu().numpy()
+        )[0]
+        
+        # Get top similar instances
+        most_similar_indices = np.argsort(similarity_scores)[::-1][:self.num_examples]
+        
+        # Return the examples
+        return [same_relation_instances[idx][1] for idx in most_similar_indices]
+        
     def _create_masked_instance(self, instance):
         """Create a masked version of the instance."""
         masked_instance = instance.copy()
@@ -98,6 +170,26 @@ class RelationExtractionDataset(Dataset):
         
         return filtered_relations
     
+    def _format_example(self, example, masked=False):
+        """Format an example instance for inclusion in the prompt."""
+        example_to_use = self._create_masked_instance(example) if masked else example
+        
+        # Extract entity text
+        subj_tokens = " ".join(example["token"][example["subj_start"]:example["subj_end"]+1])
+        obj_tokens = " ".join(example["token"][example["obj_start"]:example["obj_end"]+1])
+        
+        # Format the example
+        if masked:
+            text = f"Text: {' '.join(example_to_use['token'])}\n"
+            text += f"The relation between SUBJECT-{example['subj_type']} and OBJECT-{example['obj_type']} is: {example['relation']}\n"
+        else:
+            text = f"Text: {' '.join(example_to_use['token'])}\n"
+            text += f"Subject Entity: {subj_tokens} (Type: {example['subj_type']})\n"
+            text += f"Object Entity: {obj_tokens} (Type: {example['obj_type']})\n"
+            text += f"The relation between the subject {subj_tokens} and object {obj_tokens} is: {example['relation']}\n"
+        
+        return text
+    
     def _format_instance(self, instance, masked=False):
         """Format instance as a prompt for the model."""
         instance_to_use = self._create_masked_instance(instance) if masked else instance
@@ -130,19 +222,21 @@ class RelationExtractionDataset(Dataset):
         for i, rel_name in enumerate(filtered_relations):
             prompt += f"{i}. {rel_name}: {filtered_relations[rel_name]}\n"
         
+        # Add examples if the training data is prepared
+        if self.num_examples > 0 and RelationExtractionDataset.train_data is not None:
+            # Find similar examples with the same relation
+            similar_examples = self._find_similar_examples(instance)
+            
+            if similar_examples:
+                prompt += "\nHere are some examples:\n\n"
+                for example in similar_examples:
+                    prompt += self._format_example(example, masked=masked)
+                    prompt += "\n"
 
-        # Add an example to help the model understand the expected format
+        # Add the final instruction
         if masked:
-            # prompt += "For example:\n"
-            # prompt += "Text: Google announced that SUBJECT-PERSON will join OBJECT-ORG as the new chief marketing officer.\n"
-            # prompt += "The relation between SUBJECT-PERSON and OBJECT-ORG is: pers:org:employee_of\n\n"
             prompt += f"The relation between SUBJECT-{instance['subj_type']} and OBJECT-{instance['obj_type']} is:"
         else:
-            # prompt += "For example:\n"
-            # prompt += "Text: Google announced that John Smith will join Microsoft as the new chief marketing officer.\n"
-            # prompt += "Subject Entity: John Smith (Type: PERSON)\n"
-            # prompt += "Object Entity: Microsoft (Type: ORG)\n"
-            # prompt += "The relation between the subject John Smith and object Microsoft is: pers:org:employee_of\n\n"
             prompt += f"The relation between the subject {subj_tokens} and object {obj_tokens} is:"
         
         return prompt, list(filtered_relations.keys())
@@ -158,8 +252,9 @@ class RelationExtractionDataset(Dataset):
         masked_prompt, _ = self._format_instance(instance, masked=True)
         
         # Tokenize prompts
-        original_inputs = self.tokenizer(original_prompt, return_tensors="pt")
-        masked_inputs = self.tokenizer(masked_prompt, return_tensors="pt")
+        original_inputs = self.tokenizer(original_prompt,  return_tensors="pt") # max_length=512, truncation=True,
+        masked_inputs = self.tokenizer(masked_prompt,  truncation=True, return_tensors="pt")
+
         
         # Remove batch dimension
         for key in original_inputs:
@@ -186,21 +281,31 @@ class RelationExtractionDataset(Dataset):
 
 if __name__ == "__main__":
     from config import config
-    # Data path
-    base_model_name = "microsoft/Phi-4-mini-instruct"
-    data_path = "data/refind/test.json"
+    # Data paths
+    # base_model_name = "microsoft/Phi-4-mini-instruct"
+    base_model_name = config.base_model_name
+    train_path = f"{config.data_path}/train.json"
+    test_path = f"{config.data_path}/test.json"
     
     # Load base tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Create dataset
-    dataset = RelationExtractionDataset(data_path, tokenizer)
+    # Prepare training data examples first (computes embeddings once)
+    RelationExtractionDataset.prepare_train_examples(train_path, num_examples=3)
     
-    # Create dataloader with config values
-    dataloader = DataLoader(
-        dataset,
+    # Create test and train datasets (they'll share the same train examples)
+    test_dataset = RelationExtractionDataset(
+        test_path, 
+        tokenizer, 
+        data_description_func=refind_relation_descriptions,
+        num_examples=3
+    )
+    
+    # Create dataloaders
+    test_dataloader = DataLoader(
+        test_dataset,
         batch_size=config.batch_size,
         shuffle=False,
         collate_fn=custom_collate_fn,
@@ -208,5 +313,6 @@ if __name__ == "__main__":
         pin_memory=(config.device == "cuda")
     )
     
-    print(f"Dataset created with {len(dataset)} samples")
-    print(f"Sample instance: {dataset[0]}")
+    print(f"Test dataset created with {len(test_dataset)} samples")
+
+

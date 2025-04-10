@@ -105,17 +105,31 @@ def main():
         data_description_func=tacred_relation_descriptions
         regex_pattern = tacred_relation_regex
 
-    dataset = RelationExtractionDataset(config.data_path, tokenizer, data_description_func=data_description_func)
+    # Use configuration instead of hardcoded values
+    train_path = f"{config.data_path}/train.json"
+    test_path = f"{config.data_path}/test.json"
+
+    # Prepare training data examples first (computes embeddings once)
+    RelationExtractionDataset.prepare_train_examples(train_path, num_examples=3)
     
-    # Create dataloader
-    dataloader = DataLoader(
-        dataset,
+    # Create test and train datasets (they'll share the same train examples)
+    test_dataset = RelationExtractionDataset(
+        test_path, 
+        tokenizer, 
+        data_description_func=data_description_func,
+        num_examples=3
+    )
+
+    # Create dataloaders
+    test_dataloader = DataLoader(
+        test_dataset,
         batch_size=config.batch_size,
         shuffle=False,
         collate_fn=custom_collate_fn,
         num_workers=config.num_workers,
         pin_memory=(config.device == "cuda")
     )
+
 
     # Create results file names
     model_name = os.path.basename(config.base_model_name)
@@ -130,8 +144,8 @@ def main():
         correct = 0
         total = 0
     
-        for batch_idx, batch in enumerate(dataloader):
-            logger.info(f"Processing batch {batch_idx+1}/{len(dataloader)}")
+        for batch_idx, batch in enumerate(test_dataloader):
+            logger.info(f"Processing batch {batch_idx+1}/{len(test_dataloader)}")
             
             # Move inputs to device
             for key in batch["original_inputs"]:

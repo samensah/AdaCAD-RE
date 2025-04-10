@@ -85,7 +85,7 @@ class OutlinesRelationExtractionModel(nn.Module):
             # Calculate JSD
             alpha = get_jsd(original_logits, masked_logits)
             
-            adjusted_logits=original_logits
+            adjusted_logits=original_logits.clone()
             # Adjust logits based on divergence
             if combine_with_jsd:
                 adjusted_logits = (1 + alpha) * (original_logits) - alpha * (masked_logits)
@@ -116,18 +116,16 @@ class OutlinesRelationExtractionModel(nn.Module):
 if __name__ == "__main__":
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from dataset import RelationExtractionDataset
-    from constant import refind_relation_descriptions
-    from utils import custom_collate_fn
-    from torch.utils.data import Dataset, DataLoader
-
-    from dataset import RelationExtractionDataset
+    from constant import refind_relation_descriptions, biored_relation_descriptions, tacred_relation_descriptions
+    from constant import biored_relation_regex, refind_relation_regex, tacred_relation_regex
     from utils import custom_collate_fn
     from torch.utils.data import Dataset, DataLoader
     from config import config
     
     # Use configuration instead of hardcoded values
     base_model_name = config.base_model_name
-    data_path = config.data_path
+    train_path = f"{config.data_path}/train.json"
+    test_path = f"{config.data_path}/test.json"
     
     # Load base tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
@@ -147,9 +145,30 @@ if __name__ == "__main__":
     )
     
     # Create dataset and dataloader
-    dataset = RelationExtractionDataset(data_path, tokenizer)
-    dataloader = DataLoader(
-        dataset,
+    # test_dataset = RelationExtractionDataset(test_path, tokenizer)
+    # dataloader = DataLoader(
+    #     dataset,
+    #     batch_size=config.batch_size,
+    #     shuffle=False,
+    #     collate_fn=custom_collate_fn,
+    #     num_workers=config.num_workers,
+    #     pin_memory=(config.device == "cuda")
+    # )
+
+    # Prepare training data examples first (computes embeddings once)
+    RelationExtractionDataset.prepare_train_examples(train_path, num_examples=3)
+    
+    # Create test and train datasets (they'll share the same train examples)
+    test_dataset = RelationExtractionDataset(
+        test_path, 
+        tokenizer, 
+        data_description_func=biored_relation_descriptions,
+        num_examples=3
+    )
+
+    # Create dataloaders
+    test_dataloader = DataLoader(
+        test_dataset,
         batch_size=config.batch_size,
         shuffle=False,
         collate_fn=custom_collate_fn,
@@ -157,10 +176,11 @@ if __name__ == "__main__":
         pin_memory=(config.device == "cuda")
     )
 
-    regex_pattern = r"(no_relation|pers:title:title|org:gpe:operations_in|pers:org:employee_of|org:org:agreement_with|org:date:formed_on|pers:org:member_of|org:org:subsidiary_of|org:org:shares_of|org:money:revenue_of|org:money:loss_of|org:gpe:headquartered_in|org:date:acquired_on|pers:org:founder_of|org:gpe:formed_in|org:org:acquired_by|pers:univ:employee_of|pers:gov_agy:member_of|pers:univ:attended|pers:univ:member_of|org:money:profit_of|org:money:cost_of)"
-    
+
+    regex_pattern = biored_relation_regex
+
     # Run inference
-    for batch_idx, batch in enumerate(dataloader):
+    for batch_idx, batch in enumerate(test_dataloader):
         with torch.no_grad():  # Disable gradient computation for inference
             # Process the batch through our model
             outputs = model(

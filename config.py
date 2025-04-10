@@ -7,20 +7,22 @@ def get_args():
     
     # Model arguments
     parser.add_argument("--base_model_name", type=str, default="microsoft/Phi-4-mini-instruct",
-                        help="Path or name of the base language model: microsoft/Phi-4-mini-instruct, ../Llama-3.2-3B-Instruct")
+                        help="Path or name of the base language model: microsoft/Phi-4-mini-instruct, Qwen/Qwen2.5-3B-Instruct, meta-llama/Llama-3.2-3B-Instruct")
     parser.add_argument("--max_length", type=int, default=30,
                         help="Maximum number of tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.1,
                         help="Temperature for sampling (lower is more deterministic)")
     
     # Data arguments
-    parser.add_argument("--data_path", type=str, default="data/biored/test.json",
+    parser.add_argument("--data_path", type=str, default="data/biored/",
                         help="Path to the data file")
+    # parser.add_argument("--test_path", type=str, default="data/biored/",
+    #                     help="Path to the data file")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="Batch size for evaluation")
     
     # System arguments
-    parser.add_argument("--num_workers", type=int, default=1,
+    parser.add_argument("--num_workers", type=int, default=0,
                         help="Number of workers for data loading")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to use for computation (cuda or cpu)")
