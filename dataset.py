@@ -19,11 +19,15 @@ class RelationExtractionDataset(Dataset):
     train_embeddings = None
     sentence_model = None
     train_relation_to_instances = None
+    device = "cpu"  # Default device
     
     @classmethod
-    def prepare_train_examples(cls, train_path, num_examples=3):
+    def prepare_train_examples(cls, train_path, num_examples=3, device="cpu"):
         """Prepare training data examples and compute embeddings once."""
+        # Store device for later use
+        cls.device = device
         # Load training data
+
         with open(train_path, 'r') as f:
             cls.train_data = json.load(f)
             
@@ -42,16 +46,21 @@ class RelationExtractionDataset(Dataset):
         # Compute embeddings for train data
         print(f"Computing sentence embeddings for {len(cls.train_data)} training instances...")
         train_texts = [" ".join(instance["token"]) for instance in cls.train_data]
-        cls.train_embeddings = cls.sentence_model.encode(train_texts, show_progress_bar=True, convert_to_tensor=True)
+        cls.train_embeddings = cls.sentence_model.encode(train_texts, show_progress_bar=True, convert_to_tensor=True, device=device)
         
         print(f"Prepared {len(cls.train_data)} training instances for examples")
         
-    def __init__(self, data_path, tokenizer, data_description_func, num_examples=3):
+    def __init__(self, data_path, tokenizer, data_description_func, num_examples=3, device="cpu"):
         self.tokenizer = tokenizer
         self.data_path = data_path
         self.data = self._load_data(data_path)
         self.data_description_func = data_description_func
         self.num_examples = num_examples
+        self.device = device
+
+        # Set class device if not already set
+        if self.__class__.device != device:
+            self.__class__.device = device
         
         # Pre-compute unique relations
         self.unique_relations = sorted(list(set([item["relation"] for item in self.data])))
@@ -73,7 +82,8 @@ class RelationExtractionDataset(Dataset):
         
         # Compute embedding for current instance
         instance_embedding = RelationExtractionDataset.sentence_model.encode(
-            instance_text, convert_to_tensor=True
+            instance_text, convert_to_tensor=True,
+            device=self.__class__.device  # Use the class device
         )
             
         # Get all training instances with the same relation
