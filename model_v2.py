@@ -69,6 +69,19 @@ class OutlinesRelationExtractionModel(nn.Module):
             original_logits = original_outputs.logits[:, -1, :]
             masked_logits = masked_outputs.logits[:, -1, :]
 
+            # # Apply constraints to both distributions first
+            # constrained_original_logits = logits_processor.process_logits(input_ids=original_input_ids, logits=original_logits)
+            # constrained_masked_logits = logits_processor.process_logits(input_ids=masked_inputs_ids, logits=masked_logits)
+
+            # # Calculate JSD on the constrained distributions
+            # alpha = get_jsd(constrained_original_logits, constrained_masked_logits)
+
+            # adjusted_logits=constrained_original_logits
+            # # Adjust logits based on divergence within the constrained space
+            # if combine_with_jsd:
+            #     # adjusted_logits = (1 + alpha) * constrained_original_logits - alpha * constrained_masked_logits
+            #     adjusted_logits = (1 + alpha) * constrained_masked_logits - alpha * constrained_original_logits
+
             # Calculate JSD
             alpha = get_jsd(original_logits, masked_logits)
             
@@ -138,7 +151,7 @@ if __name__ == "__main__":
     dataloader = DataLoader(
         dataset,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=False,
         collate_fn=custom_collate_fn,
         num_workers=config.num_workers,
         pin_memory=(config.device == "cuda")

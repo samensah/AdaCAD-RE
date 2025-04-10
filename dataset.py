@@ -12,9 +12,11 @@ from constant import refind_relation_descriptions
 class RelationExtractionDataset(Dataset):
     """Dataset for relation extraction task."""
     
-    def __init__(self, data_path, tokenizer):
+    def __init__(self, data_path, tokenizer, data_description_func):
         self.tokenizer = tokenizer
+        self.data_path = data_path
         self.data = self._load_data(data_path)
+        self.data_description_func = data_description_func
         
         # Pre-compute unique relations
         self.unique_relations = sorted(list(set([item["relation"] for item in self.data])))
@@ -73,10 +75,13 @@ class RelationExtractionDataset(Dataset):
         obj_prefix = map_entity_type(instance['obj_type'])
         
         # Generate descriptions with the appropriate entity text
-        all_relations = refind_relation_descriptions(subj_text, obj_text)
+        all_relations = self.data_description_func(subj_text, obj_text)
+        if not self.data_path.startswith('data/refind'):
+            return all_relations
         
         # Always include no_relation
         filtered_relations = {"no_relation": all_relations["no_relation"]}
+
         
         # Filter relations based on entity types
         for relation, description in all_relations.items():
@@ -102,7 +107,7 @@ class RelationExtractionDataset(Dataset):
         formatted_text = " ".join(tokens)
         
         # Add a prompt asking for the relation
-        prompt = f"Text: {formatted_text}\n\nWhat is the relation between "
+        prompt = f"Text: {formatted_text}\n\nGiven the {{Text}}, what is the relation between "
         
         # Extract entity text
         subj_tokens = " ".join(instance["token"][instance["subj_start"]:instance["subj_end"]+1])
@@ -125,21 +130,19 @@ class RelationExtractionDataset(Dataset):
         for i, rel_name in enumerate(filtered_relations):
             prompt += f"{i}. {rel_name}: {filtered_relations[rel_name]}\n"
         
-        prompt += f"\nBased on the explicit evidence in the text, \
-            select the most appropriate relation name (e.g., 'org:org:shares_of').\n\n"
 
         # Add an example to help the model understand the expected format
         if masked:
-            prompt += "For example:\n"
-            prompt += "Text: Google announced that SUBJECT-PERSON will join OBJECT-ORG as the new chief marketing officer.\n"
-            prompt += "The relation between SUBJECT-PERSON and OBJECT-ORG is: pers:org:employee_of\n\n"
+            # prompt += "For example:\n"
+            # prompt += "Text: Google announced that SUBJECT-PERSON will join OBJECT-ORG as the new chief marketing officer.\n"
+            # prompt += "The relation between SUBJECT-PERSON and OBJECT-ORG is: pers:org:employee_of\n\n"
             prompt += f"The relation between SUBJECT-{instance['subj_type']} and OBJECT-{instance['obj_type']} is:"
         else:
-            prompt += "For example:\n"
-            prompt += "Text: Google announced that John Smith will join Microsoft as the new chief marketing officer.\n"
-            prompt += "Subject Entity: John Smith (Type: PERSON)\n"
-            prompt += "Object Entity: Microsoft (Type: ORG)\n"
-            prompt += "The relation between the subject John Smith and object Microsoft is: pers:org:employee_of\n\n"
+            # prompt += "For example:\n"
+            # prompt += "Text: Google announced that John Smith will join Microsoft as the new chief marketing officer.\n"
+            # prompt += "Subject Entity: John Smith (Type: PERSON)\n"
+            # prompt += "Object Entity: Microsoft (Type: ORG)\n"
+            # prompt += "The relation between the subject John Smith and object Microsoft is: pers:org:employee_of\n\n"
             prompt += f"The relation between the subject {subj_tokens} and object {obj_tokens} is:"
         
         return prompt, list(filtered_relations.keys())

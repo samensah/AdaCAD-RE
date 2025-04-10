@@ -8,7 +8,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from torch.utils.data import DataLoader
 
 from config import config
-from model import RelationExtractionModel
+from constant import refind_relation_regex, tacred_relation_regex,  biored_relation_regex
+from constant import refind_relation_descriptions, tacred_relation_descriptions, biored_relation_descriptions
+# from model import RelationExtractionModel
+from model_v2 import OutlinesRelationExtractionModel
 from dataset import RelationExtractionDataset
 from utils import custom_collate_fn, compute_metrics
 
@@ -73,16 +76,36 @@ def main():
     
     # Initialize relation extraction model
     logger.info("Initializing relation extraction model")
-    model = RelationExtractionModel(
+
+    # model = RelationExtractionModel(
+    #     base_model, 
+    #     tokenizer,
+    #     max_length=config.max_length,
+    #     temperature=config.temperature
+    # )
+
+    # use outline model to get structured generation
+    model = OutlinesRelationExtractionModel(
         base_model, 
         tokenizer,
         max_length=config.max_length,
         temperature=config.temperature
     )
+
     
     # Create dataset
     logger.info(f"Loading dataset from {config.data_path}")
-    dataset = RelationExtractionDataset(config.data_path, tokenizer)
+    if config.data_path.startswith('data/biored'):
+        data_description_func=biored_relation_descriptions
+        regex_pattern = biored_relation_regex
+    elif config.data_path.startswith('data/refind'):
+        data_description_func=refind_relation_descriptions
+        regex_pattern = refind_relation_regex
+    elif config.data_path.startswith('data/tacred'):
+        data_description_func=tacred_relation_descriptions
+        regex_pattern = tacred_relation_regex
+
+    dataset = RelationExtractionDataset(config.data_path, tokenizer, data_description_func=data_description_func)
     
     # Create dataloader
     dataloader = DataLoader(
@@ -118,9 +141,17 @@ def main():
             
             with torch.no_grad(): 
                 outputs = model(
-                    batch['original_inputs']['input_ids'],
-                    batch['masked_inputs']['input_ids']
+                    batch['original_inputs']['input_ids'],  # Original text
+                    batch['masked_inputs']['input_ids'],     # Text with masked entities
+                    outline=regex_pattern,
+                    outline_type="regex",
+                    combine_with_jsd=True  # Use custom integration
                 )
+
+                # outputs = model(
+                #     batch['original_inputs']['input_ids'],
+                #     batch['masked_inputs']['input_ids']
+                # )
                 
                 for i, output in enumerate(outputs):
                     predicted_relation = output.strip()

@@ -14,13 +14,13 @@ def get_args():
                         help="Temperature for sampling (lower is more deterministic)")
     
     # Data arguments
-    parser.add_argument("--data_path", type=str, default="data/refind/test.json",
+    parser.add_argument("--data_path", type=str, default="data/biored/test.json",
                         help="Path to the data file")
-    parser.add_argument("--batch_size", type=int, default=2,
+    parser.add_argument("--batch_size", type=int, default=1,
                         help="Batch size for evaluation")
     
     # System arguments
-    parser.add_argument("--num_workers", type=int, default=2,
+    parser.add_argument("--num_workers", type=int, default=1,
                         help="Number of workers for data loading")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to use for computation (cuda or cpu)")
